@@ -34,6 +34,8 @@
   --c-ubrania: #2BA3B8;
   --c-ubezpieczenia: #5B78A0;
   --c-podatki: #A5533A;
+  --c-bankomat: #6E8B3D;
+  --c-internet: #B44C9E;
   --c-inne: #7C8A92;
   --font: system-ui, -apple-system, "Roboto", "Segoe UI", sans-serif;
   color-scheme: light;
@@ -185,6 +187,8 @@ section h2, .card h2 {
 .days { display: flex; flex-direction: column; gap: 16px; }
 .day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 4px 6px; color: var(--muted); font-size: .85rem; font-weight: 600; }
 .day-head .d::first-letter { text-transform: uppercase; }
+.day-head .cat-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink); font-size: .95rem; font-weight: 700; }
+.opt-grid:not(.three) .opt label span:last-child { white-space: normal; line-height: 1.2; }
 .day-head { align-items: center; }
 .day-sum {
   display: inline-flex; align-items: baseline; gap: 6px;
@@ -397,6 +401,7 @@ section h2, .card h2 {
       <div class="seg" role="group" aria-label="Sortuj listę">
         <button type="button" id="sort-date" aria-pressed="true">Data</button>
         <button type="button" id="sort-amount" aria-pressed="false">Kwota</button>
+        <button type="button" id="sort-cat" aria-pressed="false">Kategoria</button>
       </div>
     </div>
     <div class="days" id="days"></div>
@@ -475,6 +480,8 @@ section h2, .card h2 {
     { key: "ubrania",       name: "Ubrania",             short: "Ub" },
     { key: "ubezpieczenia", name: "Ubezpieczenia",       short: "Ube" },
     { key: "podatki",       name: "Podatki",             short: "Po" },
+    { key: "bankomat",      name: "Bankomat – wypłata",  short: "Bk" },
+    { key: "internet",      name: "Zakupy w internecie", short: "Int" },
     { key: "inne",          name: "Inne",                short: "In" },
   ];
   const CAT = Object.fromEntries(CATS.map(c => [c.key, c]));
@@ -587,7 +594,7 @@ section h2, .card h2 {
       to: savedRange && isDate(savedRange.to) ? savedRange.to : todayStr(),
     },
     pays: new Set(Array.isArray(savedPays) && savedPays.some(k => PAY[k]) ? savedPays.filter(k => PAY[k]) : PAYS.map(p => p.key)),
-    sort: prefGet("sort", "date") === "amount" ? "amount" : "date",
+    sort: ["date", "amount", "cat"].includes(prefGet("sort", "date")) ? prefGet("sort", "date") : "date",
   };
 
   function periodRange() {
@@ -660,6 +667,7 @@ section h2, .card h2 {
     renderBackup();
     $("sort-date").setAttribute("aria-pressed", String(state.sort === "date"));
     $("sort-amount").setAttribute("aria-pressed", String(state.sort === "amount"));
+    $("sort-cat").setAttribute("aria-pressed", String(state.sort === "cat"));
   }
 
   const TICK = `<span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg></span>`;
@@ -704,12 +712,12 @@ section h2, .card h2 {
   }
 
   const XICON = `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
-  function entryHtml(i, withDate) {
+  function entryHtml(i, withDate, hideCat) {
     const c = CAT[i.cat] || CAT.inne;
     const title = i.note ? i.note : c.name;
     const bits = [];
     if (withDate) bits.push(shortDate(i.date));
-    if (i.note) bits.push(c.name);
+    if (i.note && !hideCat) bits.push(c.name);
     bits.push(PAY[payOf(i)].name);
     return `<div class="entry" data-edit="${esc(i.id)}" role="button" tabindex="0">
       <span class="badge" style="background:${color(c.key)}" aria-hidden="true">${c.short}</span>
@@ -728,6 +736,18 @@ section h2, .card h2 {
       return;
     }
     const hint = `<p class="edit-hint">Dotknij wydatku, żeby go poprawić.</p>`;
+    if (state.sort === "cat") {
+      const by = {};
+      items.forEach(i => { const k = CAT[i.cat] ? i.cat : "inne"; (by[k] = by[k] || []).push(i); });
+      const groups = Object.entries(by)
+        .map(([k, arr]) => ({ k, s: sum(arr), arr: arr.slice().sort((a, b) => b.date.localeCompare(a.date) || ((b.createdAt || 0) - (a.createdAt || 0))) }))
+        .sort((a, b) => b.s - a.s);
+      box.innerHTML = groups.map(g => `<div>
+        <div class="day-head"><span class="cat-name"><span class="dot" style="background:${color(g.k)}"></span>${esc(CAT[g.k].name)}</span><span class="day-sum num"><small>razem</small>${esc(money(g.s))}</span></div>
+        <div class="entries">${g.arr.map(i => entryHtml(i, true, true)).join("")}</div>
+      </div>`).join("") + hint;
+      return;
+    }
     if (state.sort === "amount") {
       const sorted = items.slice().sort((a, b) => (b.amount - a.amount) || b.date.localeCompare(a.date));
       box.innerHTML = `<div><div class="entries">${sorted.map(i => entryHtml(i, true)).join("")}</div>${hint}</div>`;
@@ -745,6 +765,7 @@ section h2, .card h2 {
   function setSort(s) { state.sort = s; prefSet("sort", s); disarm(); render(); }
   $("sort-date").onclick = () => setSort("date");
   $("sort-amount").onclick = () => setSort("amount");
+  $("sort-cat").onclick = () => setSort("cat");
 
   // ---------- period controls ----------
   document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
